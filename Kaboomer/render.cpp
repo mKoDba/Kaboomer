@@ -16,17 +16,15 @@
 #include "sprite.h"
 #include "render.h"
 
-int wall_x_texcoord(const float hitx, const float hity, const Texture& tex_walls) {
-    float x = hitx - floor(hitx + .5F); // x and y contain (signed) fractional parts of hitx and hity,
-    float y = hity - floor(hity + .5F); // they vary between -0.5 and +0.5, and one of them is supposed to be very close to 0
-    int tex = x * tex_walls.size;
-    if (std::abs(y) > std::abs(x)) // we need to determine whether we hit a "vertical" or a "horizontal" wall (w.r.t the map)
-        tex = y * tex_walls.size;
-    if (tex < 0) // do not forget x_texcoord can be negative, fix that
-        tex += tex_walls.size;
-    assert(tex >= 0 && tex < (int)tex_walls.size);
-    return tex;
+
+int wall_x_texcoord(const double wallX, const Texture& tex_walls) {
+    int x_texcoord = static_cast<int>(wallX * tex_walls.size);
+
+    if (x_texcoord < 0) x_texcoord += static_cast<int>(tex_walls.size); // do not forget x_texcoord can be negative, fix that
+    assert(x_texcoord >= 0 && x_texcoord < static_cast<int>(tex_walls.size));
+    return x_texcoord;
 }
+
 
 void draw_map(FrameBuffer& fb, const std::vector<Sprite>& sprites, const Texture& tex_walls, const Map& map, const size_t cell_w, const size_t cell_h) {
     for (size_t j = 0; j < map.h; j++) {  // draw the map itself
@@ -40,7 +38,7 @@ void draw_map(FrameBuffer& fb, const std::vector<Sprite>& sprites, const Texture
         }
     }
     for (size_t i = 0; i < sprites.size(); i++) { // show the monsters
-        fb.draw_rectangle(sprites[i].x * cell_w - 3, sprites[i].y * cell_h - 3, 6, 6, pack_color(255, 0, 0));
+        fb.draw_rectangle(static_cast<size_t>(sprites[i].x * cell_w - 3), static_cast<size_t>(sprites[i].y * cell_h - 3), 6, 6, pack_color(255, 0, 0));
     }
 }
 
@@ -48,12 +46,12 @@ void draw_map(FrameBuffer& fb, const std::vector<Sprite>& sprites, const Texture
 void draw_sprite(FrameBuffer& fb, const Sprite& sprite, const std::vector<float>& depth_buffer, Player& player, const Texture& tex_sprites) {
     // absolute direction from the player to the sprite (in radians)
     float sprite_dir = atan2(sprite.y - player.get_y(), sprite.x - player.get_x());
-    while (sprite_dir - player.get_angle() > M_PI) sprite_dir -= 2 * M_PI; // remove unncesessary periods from the relative direction
-    while (sprite_dir - player.get_angle() < -M_PI) sprite_dir += 2 * M_PI;
+    while (sprite_dir - player.get_angle() > static_cast<float>(M_PI)) sprite_dir -= 2 * static_cast<float>(M_PI); // remove unncesessary periods from the relative direction
+    while (sprite_dir - player.get_angle() < static_cast<float>(-M_PI)) sprite_dir += 2 * static_cast<float>(M_PI);
 
     size_t sprite_screen_size = std::min(2000, static_cast<int>(fb.h / sprite.player_dist)); // screen sprite size
-    int h_offset = (sprite_dir - player.get_angle()) / player.get_fov() * (fb.w / 2) + (fb.w / 2) / 2 - tex_sprites.size / 2; // do not forget the 3D view takes only a half of the framebuffer
-    int v_offset = fb.h / 2 - sprite_screen_size / 2;
+    int h_offset = static_cast<int>((sprite_dir - player.get_angle()) / player.get_fov() * (fb.w / 2) + (fb.w / 2) / 2 - tex_sprites.size / 2); // do not forget the 3D view takes only a half of the framebuffer
+    int v_offset = static_cast<int>(fb.h / 2 - sprite_screen_size / 2);
 
     for (size_t i = 0; i < sprite_screen_size; i++) {
         if (h_offset + int(i) < 0 || h_offset + i >= fb.w / 2) continue;
@@ -84,30 +82,89 @@ void render(FrameBuffer& fb, const GameState& gs, Player& player) {
     std::vector<float> depth_buffer(fb.w / 2, 1e3);
     for (size_t i = 0; i < fb.w / 2; i++) { // draw the visibility cone AND the "3D" view
         float angle = player.get_angle() - player.get_fov() / 2 + player.get_fov() * i / float(fb.w / 2);
-        for (float t = 0; t < 20; t += .01) { // ray marching loop
-            float x = player.get_x() + t * cos(angle);
-            float y = player.get_y() + t * sin(angle);
-            fb.set_pixel(x * cell_w, y * cell_h, pack_color(190, 190, 190)); // this draws the visibility cone
 
-            if (map.is_empty(x, y)) continue;
+        float rayDirX = cos(angle);
+        float rayDirY = sin(angle);
+        float distance = 0;
+        int stepX = 0, stepY = 0;
+        // initial distance to first next x,y square border
+        float sideDistX, sideDistY;
+        // square (x,y) in which player is
+        size_t mapX = int(player.get_x());
+        size_t mapY = int(player.get_y());
+        int side;
+        size_t texid;
 
-            size_t texid = map.get(x, y); // our ray touches a wall, so draw the vertical column to create an illusion of 3D
-            assert(texid < tex_walls.count);
-            float dist = t * cos(angle - player.get_angle());
-            depth_buffer[i] = dist;
-            size_t column_height = std::min(2000, int(fb.h / dist));
-            int x_texcoord = wall_x_texcoord(x, y, tex_walls);
-            std::vector<uint32_t> column = tex_walls.get_scaled_column(texid, x_texcoord, column_height);
-            int pix_x = i + fb.w / 2; // we are drawing at the right half of the screen, thus +fb.w/2
-            for (size_t j = 0; j < column_height; j++) { // copy the texture column to the framebuffer
-                int pix_y = j + fb.h / 2 - column_height / 2;
-                if (pix_y >= 0 && pix_y < (int)fb.h) {
-                    fb.set_pixel(pix_x, pix_y, column[j]);
-                }
+        bool hit = false;
+
+        // initial next square calculation
+        if (rayDirX > 0) {
+            stepX = 1;
+            sideDistX = (mapX + static_cast<float>(1) - player.get_x()) / rayDirX;
+        }
+        else {
+            stepX = -1;
+            sideDistX = (player.get_x() - mapX) / static_cast<float>(cos(angle - M_PI));
+        }
+        if (rayDirY > 0) {
+            stepY = 1;
+            sideDistY = (mapY + static_cast<float>(1) - player.get_y()) / rayDirY;
+        }
+        else {
+            stepY = -1;
+            sideDistY = (player.get_y() - mapY) / static_cast<float>(sin(angle - M_PI));
+        }
+        //using DDA (Digital Differential Analysis) algorithm
+        while (!hit) {
+            if (sideDistX < sideDistY) {
+                sideDistX += std::abs(1 / rayDirX);
+                mapX += stepX;
+                side = 0;
             }
-            break;
-        } // ray marching loop
-    } // field of view ray sweeping
+            else {
+                sideDistY += std::abs(1 / rayDirY);
+                mapY += stepY;
+                side = 1;
+            }
+
+            if (!map.is_empty(mapX, mapY)) {
+                hit = true;
+                texid = map.get(mapX, mapY);;
+            }
+        }
+
+        if (side) {   // if horizontal wall was hit
+            distance = (mapY - player.get_y() + (1 - stepY) / 2) / rayDirY;
+        }
+        else {       // vertical wall hit
+            distance = (mapX - player.get_x() + (1 - stepX) / 2) / rayDirX;
+
+        }
+        //Calculate height of line to draw on screen
+        int lineHeight = static_cast<int>((fb.h / (distance * cos(angle - player.get_angle()))));
+        depth_buffer[i] = distance * cos(angle - player.get_angle());
+
+        //calculate value of wallX
+        double wallX; //where exactly the wall was hit
+        if (side == 0) {
+            wallX = player.get_y() + distance * rayDirY;
+        }
+        else {
+            wallX = player.get_x() + distance * rayDirX;
+        }
+        wallX -= floor((wallX));  // get only decimal part
+
+        int x_texcoord = wall_x_texcoord(wallX, tex_walls);
+        std::vector<uint32_t> column = tex_walls.get_scaled_column(texid, x_texcoord, lineHeight);
+        size_t pix_x = i + fb.w / 2; // we are drawing at the right half of the screen, thus +fb.w/2
+        for (size_t j = 0; j < lineHeight; j++) { // copy the texture column to the framebuffer
+            size_t pix_y = j + fb.h / 2 - lineHeight / 2;
+            if (pix_y >= 0 && pix_y < (int)fb.h) {
+                fb.set_pixel(pix_x, pix_y, column[j]);
+            }
+        }
+
+    }
 
     draw_map(fb, sprites, tex_walls, map, cell_w, cell_h);
     std::cout << player.get_angle() << std::endl;
