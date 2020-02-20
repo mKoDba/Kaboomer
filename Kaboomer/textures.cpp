@@ -45,8 +45,8 @@ Texture::Texture(const std::string filename, const uint32_t format) : img_w(0), 
 
     // use loaded image's pixels to make new image that will be used
     img = std::vector<uint32_t>(w * h);
-    for (int j = 0; j < h; j++) {
-        for (int i = 0; i < w; i++) {
+    for (short j = 0; j < h; j++) {
+        for (short i = 0; i < w; i++) {
             uint8_t r = pixmap[(i + j * w) * 4 + 0];
             uint8_t g = pixmap[(i + j * w) * 4 + 1];
             uint8_t b = pixmap[(i + j * w) * 4 + 2];
@@ -59,15 +59,15 @@ Texture::Texture(const std::string filename, const uint32_t format) : img_w(0), 
 
 }
 
-uint32_t Texture::get(const size_t i, const size_t j, const size_t idx) const{
+uint32_t Texture::get(const short i, const short j, const short idx) const{
     assert(i < size && j < size && idx < count);
     return img[i + idx * size + j * img_w];
 }
 
-std::vector<uint32_t> Texture::get_scaled_column(const size_t texture_id, const size_t tex_coord, const size_t column_height) const{
+std::vector<uint32_t> Texture::get_scaled_column(const short texture_id, const short tex_coord, const short column_height) const{
     assert(tex_coord < size && texture_id < count);
     std::vector<uint32_t> column(column_height);
-    for (size_t y = 0; y < column_height; y++) {
+    for (short y = 0; y < column_height; y++) {
         column[y] = get(tex_coord, (y * size) / column_height, texture_id);
     }
     return column;

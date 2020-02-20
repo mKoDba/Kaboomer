@@ -53,17 +53,46 @@ void draw_sprite(FrameBuffer& fb, const Sprite& sprite, const std::vector<float>
     int h_offset = static_cast<int>((sprite_dir - player.get_angle()) / player.get_fov() * (fb.w / 2) + (fb.w / 2) / 2 - tex_sprites.size / 2); // do not forget the 3D view takes only a half of the framebuffer
     int v_offset = static_cast<int>(fb.h / 2 - sprite_screen_size / 2);
 
-    for (size_t i = 0; i < sprite_screen_size; ++i) {
+    uint32_t color;
+    uint8_t r, g, b, a;
+    for (short i = 0; i < sprite_screen_size; ++i) {
         if (h_offset + int(i) < 0 || h_offset + i >= fb.w / 2) continue;
         if (depth_buffer[h_offset + i] < sprite.player_dist) continue; // this sprite column is occluded
-        for (size_t j = 0; j < sprite_screen_size; ++j) {
+        for (short j = 0; j < sprite_screen_size; ++j) {
             if (v_offset + int(j) < 0 || v_offset + j >= fb.h) continue;
-            uint32_t color = tex_sprites.get(i * tex_sprites.size / sprite_screen_size, j * tex_sprites.size / sprite_screen_size, sprite.tex_id);
-            uint8_t r, g, b, a;
+            color = tex_sprites.get(i * tex_sprites.size / sprite_screen_size, j * tex_sprites.size / sprite_screen_size, sprite.tex_id);
             unpack_color(color, r, g, b, a);
             if (a > 128)
                 fb.set_pixel(fb.w / 2 + h_offset + i, v_offset + j, color);
         }
+    }
+}
+
+void draw_weapon(FrameBuffer& fb, const Texture& tex_weapon) {
+    // middle of the window
+    short offset_x = fb.w / 2 + 220;
+    for (size_t i = 0; i < tex_weapon.size; ++i) {
+        for (size_t j = 0; j < tex_weapon.size; ++j) {
+            const uint32_t col = tex_weapon.img[i+j*tex_weapon.size];
+            uint8_t r, g, b, a;
+            unpack_color(col, r, g, b, a);
+            if (r == 0 && g == 0 && b == 0) continue;
+            fb.set_pixel(offset_x + i, fb.h - tex_weapon.size+j, tex_weapon.get(i, j, 0));
+        }
+    }
+}
+
+void draw_crosshair(FrameBuffer& fb) {
+    int center = 3*fb.w/4;
+    int middle = fb.h / 2;
+    middle += 30;
+    short crosshair_size = 8;
+    uint32_t crosshair_color = pack_color(0, 255, 255);
+    for (short i = 3; i < crosshair_size; i++) {
+        fb.set_pixel(center + i, middle, crosshair_color);
+        fb.set_pixel(center - i, middle, crosshair_color);
+        fb.set_pixel(center, middle + i, crosshair_color);
+        fb.set_pixel(center, middle - i, crosshair_color);
     }
 }
 
@@ -73,13 +102,14 @@ void render(FrameBuffer& fb, const GameState& gs, Player& player) {
     const std::vector<Sprite>& sprites = gs.monsters;
     const Texture& tex_walls = gs.tex_walls;
     const Texture& tex_monst = gs.tex_monst;
+    const Texture& tex_weapon = gs.tex_weapon;
 
-    fb.clear(pack_color(255, 255, 255)); // clear the screen
+    //fb.clear(pack_color(255, 255, 255)); // clear the screen
 
     const size_t cell_w = fb.w / (map.w * 2); // size of one map cell on the screen
     const size_t cell_h = fb.h / map.h;
 
-   
+
     // WALL DRAWING
     std::vector<float> depth_buffer(fb.w / 2, 1e3);
     for (size_t i = 0; i < fb.w / 2; ++i) { // draw the visibility cone AND the "3D" view
@@ -131,7 +161,7 @@ void render(FrameBuffer& fb, const GameState& gs, Player& player) {
 
             if (!map.is_empty(mapX, mapY)) {
                 hit = true;
-                texid = map.get(mapX, mapY);;
+                texid = map.get(mapX, mapY);
             }
         }
 
@@ -147,7 +177,7 @@ void render(FrameBuffer& fb, const GameState& gs, Player& player) {
         depth_buffer[i] = distance * cos(angle - player.get_angle());
 
         //calculate value of wallX
-        double wallX; //where exactly the wall was hit
+        float wallX; //where exactly the wall was hit
         if (side == 0) {
             wallX = player.get_y() + distance * rayDirY;
         }
@@ -158,72 +188,73 @@ void render(FrameBuffer& fb, const GameState& gs, Player& player) {
 
         int x_texcoord = wall_x_texcoord(wallX, tex_walls);
         std::vector<uint32_t> column = tex_walls.get_scaled_column(texid, x_texcoord, lineHeight);
-        size_t pix_x = i + fb.w / 2; // we are drawing at the right half of the screen, thus +fb.w/2
-        for (size_t j = 0; j < lineHeight; ++j) { // copy the texture column to the framebuffer
-            size_t pix_y = j + fb.h / 2 - lineHeight / 2;
-            if (pix_y >= 0 && pix_y < (int)fb.h) {
+        short pix_x = i + fb.w / 2; // we are drawing at the right half of the screen, thus +fb.w/2
+        for (short j = 0; j < lineHeight; ++j) { // copy the texture column to the framebuffer
+            short pix_y = j + fb.h / 2 - lineHeight / 2;
+            if (pix_y >= 0 && pix_y < static_cast<short>(fb.h)) {
                 fb.set_pixel(pix_x, pix_y, column[j]);
             }
         }
-
-        /* floor and ceiling */
-        double floorXWall, floorYWall; //x, y position of the floor texel at the bottom of the wall
+        
+        // floor and ceiling
+        float floorXWall, floorYWall; //x, y position of the floor texel at the bottom of the wall
 
         //4 different wall directions possible
-        if (side == 0 && rayDirX > 0)
-        {
-            floorXWall = mapX;
-            floorYWall = mapY + wallX;
+        if (side == 0 && rayDirX > 0){
+            floorXWall = static_cast<float>(mapX);
+            floorYWall = static_cast<float>(mapY + wallX);
         }
-        else if (side == 0 && rayDirX < 0)
-        {
-            floorXWall = mapX + 1.0;
-            floorYWall = mapY + wallX;
+        else if (side == 0 && rayDirX < 0){
+            floorXWall = static_cast<float>(mapX + 1.0);
+            floorYWall = static_cast<float>(mapY + wallX);
         }
-        else if (side == 1 && rayDirY > 0)
-        {
-            floorXWall = mapX + wallX;
-            floorYWall = mapY;
+        else if (side == 1 && rayDirY > 0){
+            floorXWall = static_cast<float>(mapX + wallX);
+            floorYWall = static_cast<float>(mapY);
         }
-        else
-        {
-            floorXWall = mapX + wallX;
-            floorYWall = mapY + 1.0;
+        else{
+            floorXWall = static_cast<float>(mapX + wallX);
+            floorYWall = static_cast<float>(mapY + 1.0);
         }
 
-        double distWall, distPlayer, currentDist;
+        float distWall, distPlayer, currentDist;
 
         distWall = distance;
         distPlayer = 0.0;
 
-        int drawEnd = lineHeight / 2 + fb.h / 2;
+        short drawEnd = lineHeight / 2 + fb.h / 2;
         if (drawEnd < 0) drawEnd = fb.h; //becomes < 0 when the integer overflows
-        for (size_t j = drawEnd ; j < fb.h; ++j)
-        {
+        for (short j = drawEnd ; j < fb.h; ++j){
             
             currentDist = fb.h / (2.0 * j - fb.h); //you could make a small lookup table for this instead
 
-            double weight = (currentDist - distPlayer) / (distWall - distPlayer);
+            float weight = (currentDist - distPlayer) / (distWall - distPlayer);
 
-            double currentFloorX = weight * floorXWall + (1.0 - weight) * player.get_x();
-            double currentFloorY = weight * floorYWall + (1.0 - weight) * player.get_y();
+            float currentFloorX = static_cast<float>(weight * floorXWall + (1.0 - weight) * player.get_x());
+            float currentFloorY = static_cast<float>(weight * floorYWall + (1.0 - weight) * player.get_y());
 
-            int floorTexX, floorTexY;
-            floorTexX = int(currentFloorX * tex_walls.size) % tex_walls.size;
-            floorTexY = int(currentFloorY * tex_walls.size) % tex_walls.size;
+            short floorTexX, floorTexY;
+            floorTexX = static_cast<short>(currentFloorX * tex_walls.size) % tex_walls.size;
+            floorTexY = static_cast<short>(currentFloorY * tex_walls.size) % tex_walls.size;
             
             //floor
-            fb.set_pixel(fb.w / 2 + i, j, tex_walls.get(floorTexX, floorTexY, 0));
+            fb.set_pixel(fb.w / 2 + i, j, tex_walls.get(floorTexX, floorTexY, 1));
             //ceiling
-            fb.set_pixel(fb.w/2+i, fb.h - j, pack_color(0, 172, 216));
+            fb.set_pixel(fb.w / 2 + i, fb.h - j, tex_walls.get(floorTexX, floorTexY, 1));
         }
+        
     }
 
     draw_map(fb, sprites, tex_walls, map, cell_w, cell_h);
-    //std::cout << player.get_angle() << std::endl;
     
-    for (size_t i = 0; i < sprites.size(); i++) { // draw the sprites
+    
+    for (short i = 0; i < sprites.size(); ++i) { // draw the sprites
         draw_sprite(fb, sprites[i], depth_buffer, player, tex_monst);
     }
+
+    // weapon
+    draw_weapon(fb, tex_weapon);
+    //crosshair
+    draw_crosshair(fb);
     
 }

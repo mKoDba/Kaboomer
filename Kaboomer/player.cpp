@@ -5,6 +5,7 @@
 
 #include "SDL.h"
 #include "player.h"
+//#include "map.h"
 
 Player::Player(float pos_x = 2., float pos_y = 2., float ang = 1., float fov = 1., float t = .0, float w = .0) :
     x(pos_x), y(pos_y), a(ang), fov(fov), turn(t), walk(w) {}
@@ -24,21 +25,29 @@ void Player::handle_events(GameState& gs, float dt) {
             if ('w' == event.key.keysym.sym) walk = 1;
             if ('s' == event.key.keysym.sym) walk = -1;
         }
+        SDL_SetRelativeMouseMode(SDL_TRUE);
+        if (SDL_MOUSEMOTION == event.type) {
+            Sint32 mouse_rel_x = event.motion.xrel;
+            float xpos = 0;
+            xpos += mouse_rel_x;
+ 
+            a += xpos * dt * 0.02F;
+        }
     }
 
-    a += float(turn) * dt * 0.15F;
-    float nx = x + walk * cos(a) * dt * 0.25F;
-    float ny = y + walk * sin(a) * dt * 0.25F;
+    float nx = x + walk * cos(a) * dt*2;
+    float ny = y + walk * sin(a) * dt*2;
 
-    if (int(nx) >= 0 && int(nx) < int(gs.map.w) && int(ny) >= 0 && int(ny) < int(gs.map.h)) {
-        if (gs.map.is_empty(nx, y)) x = nx;
-        if (gs.map.is_empty(x, ny)) y = ny;
+    if (static_cast<size_t>(nx) >= 0 && static_cast<size_t>(nx) < static_cast<int>(gs.map.w) && static_cast<size_t>(ny) >= 0 && static_cast<size_t>(ny) < static_cast<size_t>(gs.map.h)) {
+        if (gs.map.is_empty(nx, static_cast<size_t>(y))) x = nx;
+        if (gs.map.is_empty(static_cast<size_t>(x), ny)) y = ny;
     }
-    for (size_t i = 0; i < gs.monsters.size(); i++) { // update the distances from the player to each sprite
+    
+    for (size_t i = 0; i < gs.monsters.size(); ++i) { // update the distances from the player to each sprite
         gs.monsters[i].player_dist = std::sqrt(pow(x - gs.monsters[i].x, 2) + pow(y - gs.monsters[i].y, 2));
     }
     std::sort(gs.monsters.begin(), gs.monsters.end()); // sort it from farthest to closest
-
+    
 }
 
 float Player::get_x() {
