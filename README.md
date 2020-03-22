@@ -10,7 +10,7 @@ Based on tutorials provided by:
 
 ### Current preview
 
-![Kaboomer](https://ibb.co/jgbgGZ1)
+![Kaboomer](https://i.ibb.co/HnBnYpk/kaboomer.png)
 
 TODO:
  - make better use of GPU rendering
